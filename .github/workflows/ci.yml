@@ -6,6 +6,12 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # ConfigModule valida esto al bootstrapear AppModule (lint/build no
+      # necesitan una conexión real: pg.Pool no conecta hasta la primera
+      # query). Los tests de integración usan su propio Postgres real vía
+      # testcontainers, sin relación con esta variable.
+      DATABASE_URL: postgres://ci:ci@localhost:5432/ci_not_connected
     steps:
       - uses: actions/checkout@v4
       - name: Use Node.js
@@ -19,5 +25,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
       - run: pnpm run test
+      - run: pnpm run test:e2e
+      - run: pnpm run test:integration
       - run: pnpm run build
-      - run: pnpm run generate:contract || true
+      - run: pnpm run generate:contract
