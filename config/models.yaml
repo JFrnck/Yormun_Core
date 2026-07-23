@@ -1,0 +1,68 @@
+# Mapa TaskProfile → modelo (docs/MODEL_ROUTING.md §2.1). NO se hardcodea
+# en código — todo modelo pasa por src/model-provider/ leyendo este archivo
+# (MODEL_ROUTING.md §6.1). Actualizar este archivo y MODEL_ROUTING.md en
+# el mismo PR cuando cambie un modelo (§6.3).
+profiles:
+  reasoning_heavy:
+    description: "Razonamiento complejo, debug, arquitectura"
+    primary: claude-opus-4-8
+    fallback: claude-sonnet-5
+    max_tokens_input: 200000
+    max_tokens_output: 8000
+    temperature: 0.3
+
+  coding_default:
+    description: "Generación y edición de código diario"
+    primary: claude-sonnet-5
+    fallback: gemini-3.5-flash
+    max_tokens_input: 100000
+    max_tokens_output: 4000
+    temperature: 0.2
+
+  long_context:
+    description: "Análisis de documentos largos, PDFs, hilos de correo"
+    primary: gemini-3.1-pro
+    fallback: claude-opus-4-8
+    max_tokens_input: 1500000
+    max_tokens_output: 8000
+    temperature: 0.4
+
+  extraction_fast:
+    description: "Clasificación, extracción de entidades, resúmenes cortos"
+    primary: claude-haiku-4-5
+    fallback: gemini-2.5-flash-lite
+    max_tokens_input: 32000
+    max_tokens_output: 1000
+    temperature: 0.1
+
+  chat_conversational:
+    description: "Chat con el usuario, respuestas conversacionales"
+    primary: claude-sonnet-5
+    fallback: claude-haiku-4-5
+    max_tokens_input: 50000
+    max_tokens_output: 2000
+    temperature: 0.7
+
+  code_execution_planner:
+    description: "Genera código para pods Deno / Modal"
+    primary: claude-opus-4-8
+    fallback: claude-sonnet-5
+    max_tokens_input: 100000
+    max_tokens_output: 8000
+    temperature: 0.2
+
+  memory_consolidation:
+    description: "Destila la sesión en entradas de memoria (sqlite-vec)"
+    primary: claude-haiku-4-5
+    fallback: gemini-2.5-flash-lite
+    max_tokens_input: 64000
+    max_tokens_output: 2000
+    temperature: 0.2
+
+  vision_analysis:
+    description: "Análisis de screenshots, imágenes, gráficas"
+    primary: claude-opus-4-8
+    fallback: gemini-3.1-pro
+    max_tokens_input: 100000
+    max_tokens_output: 4000
+    temperature: 0.3

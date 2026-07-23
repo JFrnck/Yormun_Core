@@ -46,6 +46,28 @@ const TOOL_REGISTRY: readonly ToolDefinition[] = Object.freeze([
     // correo"): al expirar se descarta y se notifica, no se escala.
     timeoutBehavior: 'discard',
   }),
+  // Fase 3.1 (Canvas LMS, BLUEPRINT 7.1 / PROMPTS.md 3.1). Declaración
+  // únicamente — el handler real (src/integrations/canvas/) lo construye
+  // Antigravity en su propio PR, consumiendo estas 3 tools ya
+  // registradas (WORKFLOW.md 2.2: registry.ts es área de Claude Code).
+  Object.freeze({
+    name: 'canvasListAssignments',
+    hitlLevel: 'auto',
+    description:
+      'Lista tareas/entregables próximos de Canvas. Solo lectura, sin efectos secundarios.',
+  }),
+  Object.freeze({
+    name: 'canvasGetCourseContent',
+    hitlLevel: 'auto',
+    description:
+      'Lee materiales de un curso de Canvas (anuncios, archivos). Solo lectura.',
+  }),
+  Object.freeze({
+    name: 'canvasScheduleStudyBlock',
+    hitlLevel: 'notify',
+    description:
+      'Crea un bloque de estudio sugerido en Google Calendar a partir de tareas de Canvas. Se ejecuta y se notifica después.',
+  }),
 ] satisfies ToolDefinition[]);
 
 const TOOL_REGISTRY_BY_NAME: ReadonlyMap<string, ToolDefinition> = new Map(

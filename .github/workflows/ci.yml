@@ -12,6 +12,12 @@ jobs:
       # query). Los tests de integración usan su propio Postgres real vía
       # testcontainers, sin relación con esta variable.
       DATABASE_URL: postgres://ci:ci@localhost:5432/ci_not_connected
+      # Mismo motivo que DATABASE_URL: ConfigModule valida solo la forma
+      # (string no vacío). Nada en lint/build/e2e llama a las APIs reales
+      # de Anthropic/Google — AnthropicProvider/GoogleProvider solo se
+      # instancian al bootstrapear AppModule, no se invocan.
+      ANTHROPIC_API_KEY: ci-not-a-real-key
+      GEMINI_API_KEY: ci-not-a-real-key
     steps:
       - uses: actions/checkout@v4
       - name: Use Node.js

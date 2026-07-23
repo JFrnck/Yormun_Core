@@ -6,9 +6,9 @@ import {
 } from './registry';
 
 describe('registry', () => {
-  it('lista las 3 tools stub de la Fase 2.2 con su nivel correcto', () => {
+  it('lista las 6 tools registradas (Fase 2.2 + Fase 3.1 Canvas) con su nivel correcto', () => {
     const tools = listRegisteredTools();
-    expect(tools).toHaveLength(3);
+    expect(tools).toHaveLength(6);
     expect(tools.find((t) => t.name === 'readEmails')?.hitlLevel).toBe('auto');
     expect(tools.find((t) => t.name === 'createCalendarEvent')?.hitlLevel).toBe(
       'notify',
@@ -16,6 +16,15 @@ describe('registry', () => {
     expect(tools.find((t) => t.name === 'sendEmail')?.hitlLevel).toBe(
       'confirm',
     );
+    expect(
+      tools.find((t) => t.name === 'canvasListAssignments')?.hitlLevel,
+    ).toBe('auto');
+    expect(
+      tools.find((t) => t.name === 'canvasGetCourseContent')?.hitlLevel,
+    ).toBe('auto');
+    expect(
+      tools.find((t) => t.name === 'canvasScheduleStudyBlock')?.hitlLevel,
+    ).toBe('notify');
   });
 
   it('getToolDefinition devuelve undefined para una tool no registrada', () => {
