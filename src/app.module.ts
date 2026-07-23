@@ -6,6 +6,7 @@ import { AuditModule } from './audit/audit.module';
 import { ConfigModule } from './config';
 import { DbModule } from './db/db.module';
 import { HitlModule } from './hitl/hitl.module';
+import { ModelProviderModule } from './model-provider/model-provider.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { HitlModule } from './hitl/hitl.module';
     ScheduleModule.forRoot(),
     AuditModule,
     HitlModule,
+    ModelProviderModule,
   ],
   controllers: [AppController],
   providers: [AppService],

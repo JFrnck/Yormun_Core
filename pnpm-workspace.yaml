@@ -20,3 +20,9 @@ allowBuilds:
   esbuild: true
   protobufjs: true
   ssh2: true
+  # @google/genai: SDK oficial de Gemini (src/model-provider). Su
+  # `prepare` script (scripts/prepare.js) referenciado en package.json no
+  # existe en el tarball publicado en npm — solo corre en el repo fuente
+  # del SDK, no en la instalación de un consumidor. Verificado: el
+  # paquete extraído no trae carpeta `scripts/`, ni binarios nativos.
+  '@google/genai': true

@@ -10,6 +10,16 @@ export const EnvSchema = z.object({
   DATABASE_URL: z
     .string()
     .min(1, 'DATABASE_URL es requerida (postgres://user:pass@host:port/db)'),
+  // src/model-provider: requeridas, no opcionales (AGENTS.md 8.4
+  // fail-fast) — todo modelo pasa por el ModelProvider (MODEL_ROUTING.md
+  // §6.1), y este necesita ambas API keys para poder hacer failover
+  // cross-vendor en cualquier profile.
+  ANTHROPIC_API_KEY: z
+    .string()
+    .min(1, 'ANTHROPIC_API_KEY es requerida (API key de Anthropic)'),
+  GEMINI_API_KEY: z
+    .string()
+    .min(1, 'GEMINI_API_KEY es requerida (API key de Google GenAI)'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
