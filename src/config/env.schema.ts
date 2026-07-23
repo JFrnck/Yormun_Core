@@ -20,6 +20,15 @@ export const EnvSchema = z.object({
   GEMINI_API_KEY: z
     .string()
     .min(1, 'GEMINI_API_KEY es requerida (API key de Google GenAI)'),
+  // src/integrations/canvas: requeridas, no opcionales (AGENTS.md 8.4 fail-fast)
+  CANVAS_BASE_URL: z
+    .string()
+    .url(
+      'CANVAS_BASE_URL debe ser una URL válida (ej: https://canvas.instructure.com)',
+    ),
+  CANVAS_API_TOKEN: z
+    .string()
+    .min(1, 'CANVAS_API_TOKEN es requerida (Personal Access Token de Canvas)'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

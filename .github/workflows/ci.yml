@@ -18,6 +18,8 @@ jobs:
       # instancian al bootstrapear AppModule, no se invocan.
       ANTHROPIC_API_KEY: ci-not-a-real-key
       GEMINI_API_KEY: ci-not-a-real-key
+      CANVAS_BASE_URL: https://canvas.ci.local
+      CANVAS_API_TOKEN: ci-not-a-real-token
     steps:
       - uses: actions/checkout@v4
       - name: Use Node.js
