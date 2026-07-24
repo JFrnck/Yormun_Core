@@ -20,6 +20,9 @@ jobs:
       GEMINI_API_KEY: ci-not-a-real-key
       CANVAS_BASE_URL: https://canvas.ci.local
       CANVAS_API_TOKEN: ci-not-a-real-token
+      TELEGRAM_BOT_TOKEN: ci-fake-token
+      TELEGRAM_OWNER_CHAT_ID: 123456789
+      TELEGRAM_WEBHOOK_SECRET: ci-fake-secret
     steps:
       - uses: actions/checkout@v4
       - name: Use Node.js
