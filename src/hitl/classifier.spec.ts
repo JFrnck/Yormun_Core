@@ -6,7 +6,7 @@ const UUID_V4_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 describe('classifyToolCall', () => {
-  // Matriz completa de las 6 tools registradas × su nivel (AGENTS.md 6.1).
+  // Matriz completa de las 10 tools registradas × su nivel (AGENTS.md 6.1).
   it.each([
     ['readEmails', 'auto', 0, false],
     ['createCalendarEvent', 'notify', 0, true],
@@ -14,6 +14,10 @@ describe('classifyToolCall', () => {
     ['canvasListAssignments', 'auto', 0, false],
     ['canvasGetCourseContent', 'auto', 0, false],
     ['canvasScheduleStudyBlock', 'notify', 0, true],
+    ['listCalendarEvents', 'auto', 0, false],
+    ['updateCalendarEvent', 'notify', 0, true],
+    ['deleteCalendarEventPast', 'notify', 0, true],
+    ['deleteCalendarEventFuture', 'confirm', 1, false],
   ] as const)(
     '%s clasifica como %s (approvalsRequired=%i, notifyAfterExecution=%s)',
     (toolName, level, approvalsRequired, notifyAfterExecution) => {

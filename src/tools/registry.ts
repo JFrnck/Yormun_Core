@@ -68,6 +68,51 @@ const TOOL_REGISTRY: readonly ToolDefinition[] = Object.freeze([
     description:
       'Crea un bloque de estudio sugerido en Google Calendar a partir de tareas de Canvas. Se ejecuta y se notifica después.',
   }),
+  // Fase 4.2 (Google Calendar + Gmail, BLUEPRINT 7.2 / PROMPTS.md 4.2).
+  // Declaración únicamente — el handler real (src/integrations/google/)
+  // lo construye Antigravity (WORKFLOW.md 2.2: registry.ts es área de
+  // Claude Code). Gmail no suma tools nuevas: "listar/leer" reusa
+  // `readEmails` (ya `auto`) y "responder/enviar nuevo" reusa `sendEmail`
+  // (ya `confirm`) — ambos pares comparten nivel HITL, no hay motivo
+  // para duplicar declaraciones. `createCalendarEvent` (arriba) también
+  // se reusa tal cual.
+  Object.freeze({
+    name: 'listCalendarEvents',
+    hitlLevel: 'auto',
+    description:
+      'Lista eventos de Google Calendar. Solo lectura, sin efectos secundarios.',
+  }),
+  Object.freeze({
+    name: 'updateCalendarEvent',
+    hitlLevel: 'notify',
+    // Owner decidió 'notify' (no está en BLUEPRINT/PROMPTS explícito):
+    // mismo riesgo que crear un evento nuevo — se ejecuta y se notifica
+    // después, no requiere aprobación previa.
+    description:
+      'Actualiza un evento existente en Google Calendar. Se ejecuta y se notifica después.',
+  }),
+  // "Borrar evento pasado: notify. Borrar evento futuro: confirm"
+  // (PROMPTS.md 4.2) no se puede expresar como una sola tool: el
+  // hitlLevel es estático por tool y NUNCA depende de los inputs en
+  // runtime (AGENTS.md 5.4, probado en classifier.spec.ts). Se separan
+  // en dos tools — la distinción pasa de "input en runtime" a "qué tool
+  // estática se invoca", el LLM elige cuál según la fecha del evento
+  // ANTES de llamar, no el clasificador después.
+  Object.freeze({
+    name: 'deleteCalendarEventPast',
+    hitlLevel: 'notify',
+    description:
+      'Borra un evento pasado de Google Calendar. Se ejecuta y se notifica después.',
+  }),
+  Object.freeze({
+    name: 'deleteCalendarEventFuture',
+    hitlLevel: 'confirm',
+    description:
+      'Borra un evento futuro de Google Calendar. Requiere 1 aprobación.',
+    // Reversible/informativo (mismo criterio que sendEmail): al expirar
+    // se descarta y se notifica, el evento simplemente no se borra.
+    timeoutBehavior: 'discard',
+  }),
 ] satisfies ToolDefinition[]);
 
 const TOOL_REGISTRY_BY_NAME: ReadonlyMap<string, ToolDefinition> = new Map(
