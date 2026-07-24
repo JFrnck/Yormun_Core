@@ -37,6 +37,7 @@ export const EnvSchema = z.object({
     .number()
     .int('TELEGRAM_OWNER_CHAT_ID debe ser un número entero'),
   TELEGRAM_WEBHOOK_URL: z.string().url().optional(),
+  TELEGRAM_WEBHOOK_SECRET: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

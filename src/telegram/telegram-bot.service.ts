@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Bot, InlineKeyboard, type Context } from 'grammy';
-import type { Update, UserFromGetMe } from 'grammy/types';
+import type { Update } from 'grammy/types';
 import { AuditService } from '../audit/audit.service';
 import type { Env } from '../config/env.schema';
 import { DB_CONNECTION, type Db } from '../db/db.module';
@@ -19,6 +19,7 @@ export class TelegramBotService implements OnModuleInit {
   private readonly bot: Bot;
   private readonly ownerChatId: number;
   private readonly webhookUrl?: string;
+  private readonly webhookSecret?: string;
 
   constructor(
     private readonly configService: ConfigService<Env, true>,
@@ -32,40 +33,57 @@ export class TelegramBotService implements OnModuleInit {
     this.webhookUrl = this.configService.get<string>('TELEGRAM_WEBHOOK_URL', {
       infer: true,
     });
+    this.webhookSecret = this.configService.get<string>(
+      'TELEGRAM_WEBHOOK_SECRET',
+      { infer: true },
+    );
 
-    this.bot = new Bot(token, {
-      botInfo: {
-        id: 1000,
-        is_bot: true,
-        first_name: 'YormunBot',
-        username: 'yormun_bot',
-        can_join_groups: false,
-        can_read_all_group_messages: false,
-        supports_inline_queries: false,
-      } as UserFromGetMe,
-    });
+    this.bot = new Bot(token);
     this.setupMiddleware();
     this.setupHandlers();
   }
 
   async onModuleInit(): Promise<void> {
-    if (this.webhookUrl) {
-      try {
-        await this.bot.api.setWebhook(this.webhookUrl);
+    try {
+      if (!this.bot.isInited()) {
+        await this.bot.init();
         this.logger.log(
-          `Webhook de Telegram configurado en: ${this.webhookUrl}`,
-        );
-      } catch (err: unknown) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        this.logger.error(
-          `Error configurando webhook de Telegram: ${errorMsg}`,
+          `Bot de Telegram inicializado como @${this.bot.botInfo.username}`,
         );
       }
+
+      if (this.webhookUrl) {
+        const options = this.webhookSecret
+          ? { secret_token: this.webhookSecret }
+          : undefined;
+        await this.bot.api.setWebhook(this.webhookUrl, options);
+        this.logger.log(
+          `Webhook de Telegram configurado en: ${this.webhookUrl} ${
+            this.webhookSecret ? '(con secret_token)' : ''
+          }`,
+        );
+      }
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `Error al inicializar/configurar bot de Telegram: ${errorMsg}`,
+      );
     }
   }
 
   public getBot(): Bot {
     return this.bot;
+  }
+
+  /**
+   * Valida si el secret token recibido en los headers del webhook coincide
+   * con el secret configurado en las variables de entorno.
+   */
+  public validateWebhookSecret(secretTokenHeader?: string): boolean {
+    if (!this.webhookSecret) {
+      return true; // En entornos donde no se define secret, se permite
+    }
+    return secretTokenHeader === this.webhookSecret;
   }
 
   public async handleWebhookUpdate(update: Update): Promise<void> {
@@ -251,7 +269,6 @@ export class TelegramBotService implements OnModuleInit {
         return;
       }
 
-      // Si fue 'resolved', registramos en audit_log e inhabilitamos la aprobación pendiente
       await this.auditService.recordApproval({
         requestId,
         approver: 'owner',

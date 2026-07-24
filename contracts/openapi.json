@@ -18,10 +18,23 @@
     "/telegram/webhook": {
       "post": {
         "operationId": "TelegramWebhookController_handleWebhook",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-telegram-bot-api-secret-token",
+            "required": false,
+            "in": "header",
+            "description": "Secret token configurado en setWebhook de Telegram",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Update procesado correctamente"
+          },
+          "401": {
+            "description": "Secret token no válido"
           }
         },
         "summary": "Endpoint del Webhook de Telegram",

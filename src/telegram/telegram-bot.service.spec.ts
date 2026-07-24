@@ -1,5 +1,5 @@
 import type { ConfigService } from '@nestjs/config';
-import type { Update } from 'grammy/types';
+import type { Update, UserFromGetMe } from 'grammy/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuditService } from '../audit/audit.service';
 import type { Env } from '../config/env.schema';
@@ -21,14 +21,32 @@ describe('TelegramBotService', () => {
 
   const OWNER_CHAT_ID = 123456789;
   const OTHER_CHAT_ID = 987654321;
+  const SECRET_TOKEN = 'test-secret-token';
 
-  beforeEach(() => {
+  const mockBotUser: UserFromGetMe = {
+    id: 1000,
+    is_bot: true,
+    first_name: 'YormunBot',
+    username: 'yormun_bot',
+    can_join_groups: false,
+    can_read_all_group_messages: false,
+    supports_inline_queries: false,
+    can_connect_to_business: false,
+    has_main_web_app: false,
+    has_topics_enabled: false,
+    allows_users_to_create_topics: false,
+    can_manage_bots: false,
+    supports_join_request_queries: false,
+  };
+
+  beforeEach(async () => {
     mockConfigService = {
       get: (key: keyof Env) => {
         if (key === 'TELEGRAM_BOT_TOKEN') return 'test-bot-token';
         if (key === 'TELEGRAM_OWNER_CHAT_ID') return OWNER_CHAT_ID;
         if (key === 'TELEGRAM_WEBHOOK_URL')
           return 'https://yormun.test/telegram/webhook';
+        if (key === 'TELEGRAM_WEBHOOK_SECRET') return SECRET_TOKEN;
         return undefined;
       },
     };
@@ -75,16 +93,33 @@ describe('TelegramBotService', () => {
       mockAuditService as AuditService,
       mockDb as Db,
     );
+
+    // Mock API calls for getMe and setWebhook
+    service.getBot().api.config.use((_prev, method) => {
+      if (method === 'getMe') {
+        return Promise.resolve({
+          ok: true,
+          result: mockBotUser,
+        } as never);
+      }
+      return Promise.resolve({
+        ok: true,
+        result: true,
+      } as never);
+    });
+
+    await service.onModuleInit();
   });
 
   function createCommandUpdate(updateId: number, text: string): Update {
-    const cmd = text.split(' ')[0];
+    const parts = text.split(' ');
+    const cmd = parts[0] ?? text;
     return {
       update_id: updateId,
       message: {
         message_id: updateId,
         date: Math.floor(Date.now() / 1000),
-        chat: { id: OWNER_CHAT_ID, type: 'private' },
+        chat: { id: OWNER_CHAT_ID, type: 'private', first_name: 'Owner' },
         from: { id: OWNER_CHAT_ID, first_name: 'Owner', is_bot: false },
         text,
         entities: [{ type: 'bot_command', offset: 0, length: cmd.length }],
@@ -102,9 +137,24 @@ describe('TelegramBotService', () => {
       ) {
         sentMessages.push(String((payload as { text: string }).text));
       }
-      return Promise.resolve({ ok: true, result: true });
+      if (method === 'getMe') {
+        return Promise.resolve({
+          ok: true,
+          result: mockBotUser,
+        } as never);
+      }
+      return Promise.resolve({
+        ok: true,
+        result: true,
+      } as never);
     });
   }
+
+  it('debe validar el secret token del webhook correctamente', () => {
+    expect(service.validateWebhookSecret(SECRET_TOKEN)).toBe(true);
+    expect(service.validateWebhookSecret('wrong-secret')).toBe(false);
+    expect(service.validateWebhookSecret(undefined)).toBe(false);
+  });
 
   it('debe descartar mensajes que no provengan del TELEGRAM_OWNER_CHAT_ID', async () => {
     const handleUpdateSpy = vi.spyOn(service.getBot(), 'handleUpdate');
@@ -113,7 +163,7 @@ describe('TelegramBotService', () => {
       message: {
         message_id: 1,
         date: Math.floor(Date.now() / 1000),
-        chat: { id: OTHER_CHAT_ID, type: 'private' },
+        chat: { id: OTHER_CHAT_ID, type: 'private', first_name: 'Intruder' },
         from: { id: OTHER_CHAT_ID, first_name: 'Intruder', is_bot: false },
         text: '/start',
         entities: [{ type: 'bot_command', offset: 0, length: 6 }],
@@ -231,7 +281,7 @@ describe('TelegramBotService', () => {
       message: {
         message_id: 7,
         date: Math.floor(Date.now() / 1000),
-        chat: { id: OWNER_CHAT_ID, type: 'private' },
+        chat: { id: OWNER_CHAT_ID, type: 'private', first_name: 'Owner' },
         from: { id: OWNER_CHAT_ID, first_name: 'Owner', is_bot: false },
         text: 'Hola Yormun, ¿cómo estás?',
       },
