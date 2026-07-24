@@ -66,3 +66,43 @@ profiles:
     max_tokens_input: 100000
     max_tokens_output: 4000
     temperature: 0.3
+
+# Precios por 1M tokens (docs/MODEL_ROUTING.md §1), usados por
+# src/budget/cost.ts para calcular el gasto real de cada llamada. Todos
+# los modelos de las tablas 1.1/1.2, no solo los que hoy aparecen en
+# `profiles` arriba — evita que cambiar un primary/fallback rompa el
+# cálculo de costo por falta de precio. Intro de Sonnet 5 ($2/$10 hasta
+# ago 2026) no se refleja aquí: usamos el precio de lista para no
+# subestimar presupuesto tras el vencimiento de la promo.
+model_prices:
+  claude-fable-5:
+    input_per_million: 10
+    output_per_million: 50
+  claude-opus-4-8:
+    input_per_million: 15
+    output_per_million: 75
+  claude-opus-4-7:
+    input_per_million: 15
+    output_per_million: 75
+  claude-sonnet-5:
+    input_per_million: 3
+    output_per_million: 15
+  claude-haiku-4-5:
+    input_per_million: 1
+    output_per_million: 5
+  gemini-3.5-flash:
+    input_per_million: 1.50
+    output_per_million: 9
+  gemini-3.1-pro:
+    input_per_million: 1.25
+    output_per_million: 10
+  gemini-2.5-flash-lite:
+    input_per_million: 0.10
+    output_per_million: 0.40
+  # "Uso por sandbox" (MODEL_ROUTING.md 1.2): no se factura por token,
+  # así que 0/0 no es "gratis" sino "este esquema no aplica". Ningún
+  # profile de runtime lo usa hoy — si alguno llegara a usarlo, el costo
+  # calculado sería siempre 0 y quedaría subestimado a propósito.
+  antigravity-preview-05-2026:
+    input_per_million: 0
+    output_per_million: 0

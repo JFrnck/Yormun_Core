@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuditService } from '../../audit/audit.service';
-import type { ModelRouterService } from '../../model-provider/router.service';
+import type { BudgetGuardedModelRouter } from '../../budget/budget-guarded-router.service';
 import type { CanvasClientService } from './canvas-client.service';
 import { ShadowingService } from './shadowing.service';
 
 describe('ShadowingService', () => {
   let service: ShadowingService;
   let mockCanvasClient: Partial<CanvasClientService>;
-  let mockModelRouter: Partial<ModelRouterService>;
+  let mockModelRouter: Partial<BudgetGuardedModelRouter>;
   let mockAuditService: Partial<AuditService>;
 
   beforeEach(() => {
@@ -48,7 +48,7 @@ describe('ShadowingService', () => {
 
     service = new ShadowingService(
       mockCanvasClient as CanvasClientService,
-      mockModelRouter as ModelRouterService,
+      mockModelRouter as BudgetGuardedModelRouter,
       mockAuditService as AuditService,
     );
   });

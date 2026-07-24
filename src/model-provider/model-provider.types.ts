@@ -25,6 +25,23 @@ export interface ModelProfileConfig {
 export type ModelsConfig = Readonly<Record<TaskProfile, ModelProfileConfig>>;
 
 /**
+ * Precio por 1M tokens (`config/models.yaml` → `model_prices`), usado
+ * por `src/budget/cost.ts` para calcular el gasto real de cada llamada.
+ * Vive acá (no en src/budget/) porque es el mismo archivo YAML que
+ * `ModelsConfig` — un solo parser para todo `models.yaml`.
+ */
+export interface ModelPrice {
+  readonly inputPerMillion: number;
+  readonly outputPerMillion: number;
+}
+
+// Keyed por modelId (string libre, no union) — a diferencia de los 8
+// TaskProfiles, el conjunto de modelos con precio no está fijo en el
+// tipo: `MODEL_ROUTING.md` §6.4 asume que se agregan/deprecan con el
+// tiempo sin tocar código.
+export type ModelPrices = Readonly<Record<string, ModelPrice>>;
+
+/**
  * Hints del selector (`docs/MODEL_ROUTING.md` §2.2). Todos opcionales:
  * un caller que no sepa nada de contexto/latencia/presupuesto puede
  * llamar `selectModel(profiles, taskProfile)` sin el tercer argumento.

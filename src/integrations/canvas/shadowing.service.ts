@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { AuditService } from '../../audit/audit.service';
-import { ModelRouterService } from '../../model-provider/router.service';
+import { BudgetGuardedModelRouter } from '../../budget/budget-guarded-router.service';
 import {
   generateSessionNonce,
   wrapUntrustedContent,
@@ -22,7 +22,7 @@ export class ShadowingService {
 
   constructor(
     private readonly canvasClient: CanvasClientService,
-    private readonly modelRouter: ModelRouterService,
+    private readonly modelRouter: BudgetGuardedModelRouter,
     private readonly auditService: AuditService,
   ) {}
 
@@ -53,7 +53,10 @@ export class ShadowingService {
    * Ejecuta el flujo completo de Shadowing Académico:
    * 1. Consulta cursos activos, tareas próximas y anuncios (últimas 24h).
    * 2. Sanitiza todo el contenido con `wrapUntrustedContent`.
-   * 3. Genera un resumen con Gemini 3.1 Pro vía `ModelRouterService.complete('long_context', ...)`.
+   * 3. Genera un resumen con Gemini 3.1 Pro vía
+   *    `BudgetGuardedModelRouter.complete('long_context', ...)` — pasa
+   *    por el chequeo de presupuesto/kill switch (Fase 4.1) antes de
+   *    llegar al `ModelRouterService` real.
    * 4. Registra la auditoría en `AuditService`.
    */
   async runShadowing(sinceDate?: Date): Promise<ShadowingResult> {
