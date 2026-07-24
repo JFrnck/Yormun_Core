@@ -51,6 +51,40 @@ describe('DualConfirmService (integración, Postgres real)', () => {
     expect(pending?.firstApprovedAt).toBeNull();
   });
 
+  it('createPendingApproval persiste el payload cuando se provee, y null cuando se omite', async () => {
+    await service.createPendingApproval({
+      requestId: '11111111-1111-4111-8111-111111111111',
+      toolName: 'sendEmail',
+      level: 'confirm',
+      inputsHash: 'h1',
+      payload: {
+        to: 'destinatario@example.com',
+        subject: 'Asunto',
+        body: 'Cuerpo',
+      },
+    });
+    await service.createPendingApproval({
+      requestId: '22222222-2222-4222-8222-222222222222',
+      toolName: 'unpause',
+      level: 'confirm',
+      inputsHash: 'h2',
+    });
+
+    const withPayload = await service.getPending(
+      '11111111-1111-4111-8111-111111111111',
+    );
+    const withoutPayload = await service.getPending(
+      '22222222-2222-4222-8222-222222222222',
+    );
+
+    expect(withPayload?.payload).toEqual({
+      to: 'destinatario@example.com',
+      subject: 'Asunto',
+      body: 'Cuerpo',
+    });
+    expect(withoutPayload?.payload).toBeNull();
+  });
+
   it('recordApproval resuelve de inmediato para nivel confirm', async () => {
     await service.createPendingApproval({
       requestId: '11111111-1111-4111-8111-111111111111',

@@ -35,6 +35,13 @@ export interface CreatePendingApprovalInput {
   readonly level: 'confirm' | 'dual-confirm';
   readonly inputsHash: string;
   readonly planSummary?: string;
+  /**
+   * Datos de la acción real a ejecutar si se aprueba (ej. to/subject/body
+   * de un email) — consumido por `ApprovalExecutionService` vía
+   * `ToolExecutorRegistry` al resolverse la aprobación. Ausente para
+   * acciones sin ejecución diferida.
+   */
+  readonly payload?: unknown;
 }
 
 export type ApprovalOutcome = 'resolved' | 'awaiting-second';
@@ -57,6 +64,7 @@ export class DualConfirmService {
       level: input.level,
       inputsHash: input.inputsHash,
       planSummary: input.planSummary ?? null,
+      payload: input.payload ?? null,
     });
   }
 

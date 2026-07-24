@@ -4,6 +4,7 @@ import {
   boolean,
   date,
   integer,
+  jsonb,
   numeric,
   uuid,
   timestamp,
@@ -52,6 +53,11 @@ export const pendingApprovals = pgTable('pending_approvals', {
   level: text('level').notNull(), // 'confirm' | 'dual-confirm'
   inputsHash: text('inputs_hash').notNull(),
   planSummary: text('plan_summary'),
+  // Datos de la acción real a ejecutar si se aprueba (ej. to/subject/body
+  // de un email) — sin esto no había dónde reconstruir "qué ejecutar" al
+  // momento de aprobar (prerequisito de Fase 4.2, ver STATUS.md). Nullable:
+  // acciones sin ejecución diferida (ej. /unpause) no necesitan payload.
+  payload: jsonb('payload'),
   createdAt: timestamp('created_at', { withTimezone: true })
     .notNull()
     .defaultNow(),
