@@ -14,6 +14,21 @@
           "App"
         ]
       }
+    },
+    "/telegram/webhook": {
+      "post": {
+        "operationId": "TelegramWebhookController_handleWebhook",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Update procesado correctamente"
+          }
+        },
+        "summary": "Endpoint del Webhook de Telegram",
+        "tags": [
+          "telegram"
+        ]
+      }
     }
   },
   "info": {

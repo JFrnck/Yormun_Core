@@ -8,6 +8,7 @@ import { DbModule } from './db/db.module';
 import { HitlModule } from './hitl/hitl.module';
 import { CanvasModule } from './integrations/canvas/canvas.module';
 import { ModelProviderModule } from './model-provider/model-provider.module';
+import { TelegramModule } from './telegram/telegram.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { ModelProviderModule } from './model-provider/model-provider.module';
     HitlModule,
     ModelProviderModule,
     CanvasModule,
+    TelegramModule,
   ],
   controllers: [AppController],
   providers: [AppService],

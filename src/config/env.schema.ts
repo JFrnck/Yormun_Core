@@ -29,6 +29,14 @@ export const EnvSchema = z.object({
   CANVAS_API_TOKEN: z
     .string()
     .min(1, 'CANVAS_API_TOKEN es requerida (Personal Access Token de Canvas)'),
+  // src/telegram: requeridas, no opcionales (AGENTS.md 8.4 fail-fast)
+  TELEGRAM_BOT_TOKEN: z
+    .string()
+    .min(1, 'TELEGRAM_BOT_TOKEN es requerida (Bot token de Telegram)'),
+  TELEGRAM_OWNER_CHAT_ID: z.coerce
+    .number()
+    .int('TELEGRAM_OWNER_CHAT_ID debe ser un número entero'),
+  TELEGRAM_WEBHOOK_URL: z.string().url().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
