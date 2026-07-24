@@ -7,8 +7,10 @@ import type { BudgetService } from '../budget/budget.service';
 import type { KillSwitchService } from '../budget/kill-switch.service';
 import type { Env } from '../config/env.schema';
 import type { Db } from '../db/db.module';
+import type { ApprovalExecutionService } from '../hitl/approval-execution.service';
 import {
   DualConfirmService,
+  PendingApprovalNotFoundError,
   SecondApprovalTooEarlyError,
 } from '../hitl/dual-confirm.service';
 import { TelegramBotService } from './telegram-bot.service';
@@ -21,6 +23,7 @@ describe('TelegramBotService', () => {
   let mockKillSwitchService: Partial<KillSwitchService>;
   let mockDualConfirm: Partial<DualConfirmService>;
   let mockAuditService: Partial<AuditService>;
+  let mockApprovalExecutionService: Partial<ApprovalExecutionService>;
   let mockDb: Partial<Db>;
 
   const OWNER_CHAT_ID = 123456789;
@@ -84,6 +87,11 @@ describe('TelegramBotService', () => {
       recordRejection: vi.fn().mockResolvedValue(undefined),
     };
 
+    mockApprovalExecutionService = {
+      resolveAndExecute: vi.fn(),
+      resolveRejection: vi.fn().mockResolvedValue(undefined),
+    };
+
     mockDb = {
       select: vi.fn().mockReturnValue({
         from: vi.fn().mockResolvedValue([
@@ -106,6 +114,7 @@ describe('TelegramBotService', () => {
       mockKillSwitchService as KillSwitchService,
       mockDualConfirm as DualConfirmService,
       mockAuditService as AuditService,
+      mockApprovalExecutionService as ApprovalExecutionService,
       mockDb as Db,
     );
 
@@ -253,61 +262,59 @@ describe('TelegramBotService', () => {
     expect(sentMessages.some((msg) => msg.includes('test-req-1'))).toBe(true);
   });
 
-  it('debe procesar /approve y registrar auditoría', async () => {
+  it('debe procesar /approve delegando en ApprovalExecutionService y mostrar el resultado real', async () => {
     const sentMessages: string[] = [];
     mockSendMessage(sentMessages);
 
-    vi.mocked(mockDualConfirm.getPending!).mockResolvedValue({
-      requestId: 'test-req-1',
+    vi.mocked(
+      mockApprovalExecutionService.resolveAndExecute!,
+    ).mockResolvedValue({
+      outcome: 'resolved',
       toolName: 'gitPush',
-      level: 'confirm',
-      inputsHash: 'abc123hash',
-      planSummary: 'Push to main',
-      createdAt: new Date(),
-      firstApprovedAt: null,
-      firstApprover: null,
-      availableAt: null,
-      escalatedAt: null,
+      result: 'push OK',
     });
-    vi.mocked(mockDualConfirm.recordApproval!).mockResolvedValue('resolved');
 
     await service.handleWebhookUpdate(
       createCommandUpdate(5, '/approve test-req-1'),
     );
 
-    expect(mockDualConfirm.recordApproval).toHaveBeenCalledWith(
+    expect(mockApprovalExecutionService.resolveAndExecute).toHaveBeenCalledWith(
       'test-req-1',
       'owner',
     );
-    expect(mockAuditService.recordApproval).toHaveBeenCalledWith({
-      requestId: 'test-req-1',
-      approver: 'owner',
-      toolName: 'gitPush',
-      inputsHash: 'abc123hash',
-    });
-    expect(mockDualConfirm.removePending).toHaveBeenCalledWith('test-req-1');
-    expect(sentMessages.some((msg) => msg.includes('Acción Aprobada'))).toBe(
-      true,
+    expect(
+      sentMessages.some(
+        (msg) =>
+          msg.includes('Acción Aprobada y Ejecutada') &&
+          msg.includes('push OK'),
+      ),
+    ).toBe(true);
+  });
+
+  it('/approve responde awaiting-second sin reportar ejecución cuando es la primera de un dual-confirm', async () => {
+    const sentMessages: string[] = [];
+    mockSendMessage(sentMessages);
+
+    vi.mocked(
+      mockApprovalExecutionService.resolveAndExecute!,
+    ).mockResolvedValue({ outcome: 'awaiting-second' });
+
+    await service.handleWebhookUpdate(
+      createCommandUpdate(6, '/approve test-req-dual'),
     );
+
+    expect(
+      sentMessages.some((msg) => msg.includes('Primera aprobación registrada')),
+    ).toBe(true);
   });
 
   it('debe capturar SecondApprovalTooEarlyError si la aprobación en dual-confirm es muy rápida', async () => {
     const sentMessages: string[] = [];
     mockSendMessage(sentMessages);
 
-    vi.mocked(mockDualConfirm.getPending!).mockResolvedValue({
-      requestId: 'test-req-dual',
-      toolName: 'dropDatabase',
-      level: 'dual-confirm',
-      inputsHash: 'def456hash',
-      planSummary: 'Drop database',
-      createdAt: new Date(),
-      firstApprovedAt: new Date(),
-      firstApprover: 'owner',
-      availableAt: new Date(Date.now() + 25000),
-      escalatedAt: null,
-    });
-    vi.mocked(mockDualConfirm.recordApproval!).mockRejectedValue(
+    vi.mocked(
+      mockApprovalExecutionService.resolveAndExecute!,
+    ).mockRejectedValue(
       new SecondApprovalTooEarlyError(
         'test-req-dual',
         new Date(Date.now() + 25000),
@@ -324,6 +331,41 @@ describe('TelegramBotService', () => {
         ),
       ),
     ).toBe(true);
+  });
+
+  it('/approve responde con error legible si no existe la aprobación pendiente', async () => {
+    const sentMessages: string[] = [];
+    mockSendMessage(sentMessages);
+
+    vi.mocked(
+      mockApprovalExecutionService.resolveAndExecute!,
+    ).mockRejectedValue(
+      new PendingApprovalNotFoundError('test-req-inexistente'),
+    );
+
+    await service.handleWebhookUpdate(
+      createCommandUpdate(6, '/approve test-req-inexistente'),
+    );
+    expect(
+      sentMessages.some((msg) => msg.includes('No hay aprobación pendiente')),
+    ).toBe(true);
+  });
+
+  it('debe procesar /reject delegando en ApprovalExecutionService sin ejecutar nada', async () => {
+    const sentMessages: string[] = [];
+    mockSendMessage(sentMessages);
+
+    await service.handleWebhookUpdate(
+      createCommandUpdate(6, '/reject test-req-1'),
+    );
+
+    expect(mockApprovalExecutionService.resolveRejection).toHaveBeenCalledWith(
+      'test-req-1',
+      'owner',
+    );
+    expect(sentMessages.some((msg) => msg.includes('Acción Rechazada'))).toBe(
+      true,
+    );
   });
 
   it('debe responder usando BudgetGuardedModelRouter al recibir texto libre, con una sessionId estable', async () => {

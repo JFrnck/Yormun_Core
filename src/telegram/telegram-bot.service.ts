@@ -11,6 +11,7 @@ import { KillSwitchService } from '../budget/kill-switch.service';
 import type { Env } from '../config/env.schema';
 import { DB_CONNECTION, type Db } from '../db/db.module';
 import { pendingApprovals } from '../db/schema';
+import { ApprovalExecutionService } from '../hitl/approval-execution.service';
 import {
   DualConfirmService,
   PendingApprovalNotFoundError,
@@ -48,6 +49,7 @@ export class TelegramBotService implements OnModuleInit {
     private readonly killSwitchService: KillSwitchService,
     private readonly dualConfirmService: DualConfirmService,
     private readonly auditService: AuditService,
+    private readonly approvalExecutionService: ApprovalExecutionService,
     @Inject(DB_CONNECTION) private readonly db: Db,
   ) {
     const token = this.configService.get<string>('TELEGRAM_BOT_TOKEN');
@@ -294,23 +296,12 @@ export class TelegramBotService implements OnModuleInit {
     requestId: string,
   ): Promise<void> {
     try {
-      const pending = await this.dualConfirmService.getPending(requestId);
-      if (!pending) {
-        await ctx.reply(
-          `❌ No se encontró ninguna aprobación pendiente con ID \`${requestId}\`.`,
-          {
-            parse_mode: 'Markdown',
-          },
-        );
-        return;
-      }
-
-      const outcome = await this.dualConfirmService.recordApproval(
+      const outcome = await this.approvalExecutionService.resolveAndExecute(
         requestId,
         'owner',
       );
 
-      if (outcome === 'awaiting-second') {
+      if (outcome.outcome === 'awaiting-second') {
         await ctx.reply(
           `⏳ *Primera aprobación registrada* para \`${requestId}\`.\n` +
             `Por favor, envíe la segunda aprobación pasados 30 segundos.`,
@@ -319,17 +310,9 @@ export class TelegramBotService implements OnModuleInit {
         return;
       }
 
-      await this.auditService.recordApproval({
-        requestId,
-        approver: 'owner',
-        toolName: pending.toolName,
-        inputsHash: pending.inputsHash,
-      });
-
-      await this.dualConfirmService.removePending(requestId);
-
       await ctx.reply(
-        `✅ *Acción Aprobada* (\`${requestId}\`). Registrado en audit log.`,
+        `✅ *Acción Aprobada y Ejecutada* (\`${requestId}\`).\n` +
+          `Resultado: ${String(outcome.result)}`,
         {
           parse_mode: 'Markdown',
         },
@@ -353,25 +336,7 @@ export class TelegramBotService implements OnModuleInit {
     requestId: string,
   ): Promise<void> {
     try {
-      const pending = await this.dualConfirmService.getPending(requestId);
-      if (!pending) {
-        await ctx.reply(
-          `❌ No se encontró ninguna aprobación pendiente con ID \`${requestId}\`.`,
-          {
-            parse_mode: 'Markdown',
-          },
-        );
-        return;
-      }
-
-      await this.auditService.recordRejection({
-        requestId,
-        approver: 'owner',
-        toolName: pending.toolName,
-        inputsHash: pending.inputsHash,
-      });
-
-      await this.dualConfirmService.removePending(requestId);
+      await this.approvalExecutionService.resolveRejection(requestId, 'owner');
 
       await ctx.reply(
         `❌ *Acción Rechazada* (\`${requestId}\`). Registrado en audit log.`,
@@ -380,6 +345,10 @@ export class TelegramBotService implements OnModuleInit {
         },
       );
     } catch (err: unknown) {
+      if (err instanceof PendingApprovalNotFoundError) {
+        await ctx.reply(`❌ ${err.message}`);
+        return;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       await ctx.reply(`⚠️ Error al procesar rechazo: ${msg}`);
     }
