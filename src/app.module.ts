@@ -3,6 +3,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuditModule } from './audit/audit.module';
+import { BudgetModule } from './budget/budget.module';
 import { ConfigModule } from './config';
 import { DbModule } from './db/db.module';
 import { HitlModule } from './hitl/hitl.module';
@@ -18,6 +19,7 @@ import { TelegramModule } from './telegram/telegram.module';
     AuditModule,
     HitlModule,
     ModelProviderModule,
+    BudgetModule,
     CanvasModule,
     TelegramModule,
   ],

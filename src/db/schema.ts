@@ -1,4 +1,14 @@
-import { pgTable, bigserial, uuid, timestamp, text } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  bigserial,
+  boolean,
+  date,
+  integer,
+  numeric,
+  uuid,
+  timestamp,
+  text,
+} from 'drizzle-orm/pg-core';
 
 /**
  * Log de auditoría inmutable (BLUEPRINT 9.5, ADR 0002). INSERT-ONLY:
@@ -58,3 +68,67 @@ export const pendingApprovals = pgTable('pending_approvals', {
 
 export type PendingApprovalRow = typeof pendingApprovals.$inferSelect;
 export type NewPendingApprovalRow = typeof pendingApprovals.$inferInsert;
+
+/**
+ * Consumo acumulado por día local (BLUEPRINT 9.6 — límite diario de
+ * tokens/$). Persistido (no en memoria): sobrevive a un restart del pod,
+ * mismo criterio que `pendingApprovals` — a diferencia del acumulado de
+ * sesión (efímero, en memoria en `src/budget/budget.service.ts`), perder
+ * el conteo diario tras un restart resetearía el cap silenciosamente.
+ */
+export const budgetDailyUsage = pgTable('budget_daily_usage', {
+  date: date('date', { mode: 'string' }).primaryKey(),
+  inputTokens: integer('input_tokens').notNull().default(0),
+  outputTokens: integer('output_tokens').notNull().default(0),
+  costUsd: numeric('cost_usd', {
+    mode: 'number',
+    precision: 12,
+    scale: 6,
+  })
+    .notNull()
+    .default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type BudgetDailyUsageRow = typeof budgetDailyUsage.$inferSelect;
+export type NewBudgetDailyUsageRow = typeof budgetDailyUsage.$inferInsert;
+
+/**
+ * Ventana rodante por hora (BLUEPRINT 9.6 — kill switch de runaway:
+ * consumo de la hora actual vs. promedio de las últimas N horas).
+ * Persistido por el mismo motivo que `budgetDailyUsage`.
+ */
+export const budgetHourlyUsage = pgTable('budget_hourly_usage', {
+  hourBucket: timestamp('hour_bucket', { withTimezone: true }).primaryKey(),
+  inputTokens: integer('input_tokens').notNull().default(0),
+  outputTokens: integer('output_tokens').notNull().default(0),
+  costUsd: numeric('cost_usd', {
+    mode: 'number',
+    precision: 12,
+    scale: 6,
+  })
+    .notNull()
+    .default(0),
+});
+
+export type BudgetHourlyUsageRow = typeof budgetHourlyUsage.$inferSelect;
+export type NewBudgetHourlyUsageRow = typeof budgetHourlyUsage.$inferInsert;
+
+/**
+ * Fila singleton (`id` siempre 1) con el estado del kill switch
+ * (BLUEPRINT 9.6). Persistido a propósito, a diferencia de
+ * `ChainVerificationService.locked` (en memoria, gap preexistente ajeno
+ * a esta tabla): un simple redeploy no debe "despausar" el sistema sin
+ * intervención humana — esa es la garantía central del kill switch.
+ */
+export const budgetKillSwitch = pgTable('budget_kill_switch', {
+  id: integer('id').primaryKey(),
+  active: boolean('active').notNull().default(false),
+  activatedAt: timestamp('activated_at', { withTimezone: true }),
+  reason: text('reason'),
+});
+
+export type BudgetKillSwitchRow = typeof budgetKillSwitch.$inferSelect;
+export type NewBudgetKillSwitchRow = typeof budgetKillSwitch.$inferInsert;

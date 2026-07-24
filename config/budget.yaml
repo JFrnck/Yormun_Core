@@ -1,0 +1,11 @@
+# Presupuesto (docs/BLUEPRINT.md §9.6). NO se hardcodea en código — todo
+# límite pasa por src/budget/ leyendo este archivo.
+session_max_input_tokens: 500000
+session_max_output_tokens: 100000
+daily_max_tokens: 5000000
+daily_max_usd: 10
+# Kill switch: si el consumo de la hora actual supera runaway_multiplier
+# veces el promedio horario de las últimas runaway_lookback_hours, se
+# activa la pausa total (BLUEPRINT §9.6, "hard cap").
+runaway_multiplier: 2
+runaway_lookback_hours: 24

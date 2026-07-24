@@ -2,19 +2,23 @@ import type { ConfigService } from '@nestjs/config';
 import type { Update, UserFromGetMe } from 'grammy/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuditService } from '../audit/audit.service';
+import type { BudgetGuardedModelRouter } from '../budget/budget-guarded-router.service';
+import type { BudgetService } from '../budget/budget.service';
+import type { KillSwitchService } from '../budget/kill-switch.service';
 import type { Env } from '../config/env.schema';
 import type { Db } from '../db/db.module';
 import {
   DualConfirmService,
   SecondApprovalTooEarlyError,
 } from '../hitl/dual-confirm.service';
-import type { ModelRouterService } from '../model-provider/router.service';
 import { TelegramBotService } from './telegram-bot.service';
 
 describe('TelegramBotService', () => {
   let service: TelegramBotService;
   let mockConfigService: Partial<ConfigService<Env, true>>;
-  let mockModelRouter: Partial<ModelRouterService>;
+  let mockBudgetGuardedRouter: Partial<BudgetGuardedModelRouter>;
+  let mockBudgetService: Partial<BudgetService>;
+  let mockKillSwitchService: Partial<KillSwitchService>;
   let mockDualConfirm: Partial<DualConfirmService>;
   let mockAuditService: Partial<AuditService>;
   let mockDb: Partial<Db>;
@@ -51,13 +55,22 @@ describe('TelegramBotService', () => {
       },
     };
 
-    mockModelRouter = {
+    mockBudgetGuardedRouter = {
       complete: vi.fn().mockResolvedValue({
         content: 'Hola owner, respuesta del LLM',
         modelId: 'claude-sonnet-5',
         inputTokens: 10,
         outputTokens: 10,
       }),
+    };
+
+    mockBudgetService = {
+      getDailyUsageRatio: vi.fn().mockResolvedValue(0.42),
+    };
+
+    mockKillSwitchService = {
+      isActive: vi.fn().mockResolvedValue(false),
+      unpause: vi.fn().mockResolvedValue(undefined),
     };
 
     mockDualConfirm = {
@@ -88,7 +101,9 @@ describe('TelegramBotService', () => {
 
     service = new TelegramBotService(
       mockConfigService as ConfigService<Env, true>,
-      mockModelRouter as ModelRouterService,
+      mockBudgetGuardedRouter as BudgetGuardedModelRouter,
+      mockBudgetService as BudgetService,
+      mockKillSwitchService as KillSwitchService,
       mockDualConfirm as DualConfirmService,
       mockAuditService as AuditService,
       mockDb as Db,
@@ -172,7 +187,7 @@ describe('TelegramBotService', () => {
 
     await service.handleWebhookUpdate(update);
     expect(handleUpdateSpy).toHaveBeenCalledWith(update);
-    expect(mockModelRouter.complete).not.toHaveBeenCalled();
+    expect(mockBudgetGuardedRouter.complete).not.toHaveBeenCalled();
   });
 
   it('debe procesar el comando /start si proviene del owner', async () => {
@@ -183,12 +198,51 @@ describe('TelegramBotService', () => {
     expect(sentMessages.some((msg) => msg.includes('YORMUNGANDER'))).toBe(true);
   });
 
-  it('debe responder el stub informativo al ejecutar /budget', async () => {
+  it('debe reportar el porcentaje diario real y el estado del kill switch en /budget', async () => {
     const sentMessages: string[] = [];
     mockSendMessage(sentMessages);
 
     await service.handleWebhookUpdate(createCommandUpdate(3, '/budget'));
-    expect(sentMessages.some((msg) => msg.includes('Budget Guard'))).toBe(true);
+    expect(sentMessages.some((msg) => msg.includes('42%'))).toBe(true);
+    expect(sentMessages.some((msg) => msg.includes('inactivo'))).toBe(true);
+  });
+
+  it('/budget muestra el kill switch activo cuando corresponde', async () => {
+    vi.mocked(mockKillSwitchService.isActive!).mockResolvedValue(true);
+    const sentMessages: string[] = [];
+    mockSendMessage(sentMessages);
+
+    await service.handleWebhookUpdate(createCommandUpdate(30, '/budget'));
+    expect(sentMessages.some((msg) => msg.includes('ACTIVO'))).toBe(true);
+  });
+
+  it('/unpause desactiva el kill switch y registra auditoría cuando está activo', async () => {
+    vi.mocked(mockKillSwitchService.isActive!).mockResolvedValue(true);
+    const sentMessages: string[] = [];
+    mockSendMessage(sentMessages);
+
+    await service.handleWebhookUpdate(createCommandUpdate(31, '/unpause'));
+
+    expect(mockKillSwitchService.unpause).toHaveBeenCalled();
+    expect(mockAuditService.recordApproval).toHaveBeenCalledWith(
+      expect.objectContaining({ toolName: 'unpause', approver: 'owner' }),
+    );
+    expect(
+      sentMessages.some((msg) => msg.includes('Kill switch desactivado')),
+    ).toBe(true);
+  });
+
+  it('/unpause no hace nada si el kill switch ya está inactivo', async () => {
+    vi.mocked(mockKillSwitchService.isActive!).mockResolvedValue(false);
+    const sentMessages: string[] = [];
+    mockSendMessage(sentMessages);
+
+    await service.handleWebhookUpdate(createCommandUpdate(32, '/unpause'));
+
+    expect(mockKillSwitchService.unpause).not.toHaveBeenCalled();
+    expect(sentMessages.some((msg) => msg.includes('nada que reanudar'))).toBe(
+      true,
+    );
   });
 
   it('debe listar tareas pendientes al recibir /tasks', async () => {
@@ -272,7 +326,7 @@ describe('TelegramBotService', () => {
     ).toBe(true);
   });
 
-  it('debe responder usando ModelRouterService al recibir texto libre', async () => {
+  it('debe responder usando BudgetGuardedModelRouter al recibir texto libre, con una sessionId estable', async () => {
     const sentMessages: string[] = [];
     mockSendMessage(sentMessages);
 
@@ -288,14 +342,88 @@ describe('TelegramBotService', () => {
     };
 
     await service.handleWebhookUpdate(update);
-    expect(mockModelRouter.complete).toHaveBeenCalledWith(
+    expect(mockBudgetGuardedRouter.complete).toHaveBeenCalledWith(
       'chat_conversational',
       expect.objectContaining({
         messages: [{ role: 'user', content: 'Hola Yormun, ¿cómo estás?' }],
         maxOutputTokens: 2000,
         temperature: 0.7,
       }),
+      undefined,
+      expect.any(String),
     );
     expect(sentMessages).toContain('Hola owner, respuesta del LLM');
+  });
+
+  it('propaga el mensaje de KillSwitchActiveError/presupuesto al owner en vez de un genérico', async () => {
+    vi.mocked(mockBudgetGuardedRouter.complete!).mockRejectedValue(
+      new Error('Kill switch activo: runaway detectado.'),
+    );
+    const sentMessages: string[] = [];
+    mockSendMessage(sentMessages);
+
+    const update: Update = {
+      update_id: 8,
+      message: {
+        message_id: 8,
+        date: Math.floor(Date.now() / 1000),
+        chat: { id: OWNER_CHAT_ID, type: 'private', first_name: 'Owner' },
+        from: { id: OWNER_CHAT_ID, first_name: 'Owner', is_bot: false },
+        text: 'Hola de nuevo',
+      },
+    };
+
+    await service.handleWebhookUpdate(update);
+    expect(sentMessages.some((msg) => msg.includes('Kill switch activo'))).toBe(
+      true,
+    );
+  });
+
+  describe('checkBudgetAlerts (cron)', () => {
+    it('notifica al owner cuando el kill switch pasa a activo', async () => {
+      vi.mocked(mockKillSwitchService.isActive!).mockResolvedValue(true);
+      const sentMessages: string[] = [];
+      mockSendMessage(sentMessages);
+
+      await service.checkBudgetAlerts();
+
+      expect(
+        sentMessages.some((msg) => msg.includes('Kill switch activado')),
+      ).toBe(true);
+    });
+
+    it('no repite la alerta de kill switch en corridas sucesivas mientras siga activo', async () => {
+      vi.mocked(mockKillSwitchService.isActive!).mockResolvedValue(true);
+      const sentMessages: string[] = [];
+      mockSendMessage(sentMessages);
+
+      await service.checkBudgetAlerts();
+      await service.checkBudgetAlerts();
+
+      expect(
+        sentMessages.filter((msg) => msg.includes('Kill switch activado')),
+      ).toHaveLength(1);
+    });
+
+    it('notifica al owner al cruzar el 80% y el 100% del presupuesto diario', async () => {
+      vi.mocked(mockBudgetService.getDailyUsageRatio!).mockResolvedValue(0.85);
+      const sentMessages: string[] = [];
+      mockSendMessage(sentMessages);
+
+      await service.checkBudgetAlerts();
+
+      expect(sentMessages.some((msg) => msg.includes('80%'))).toBe(true);
+    });
+
+    it('no notifica de nuevo el mismo umbral diario en corridas sucesivas', async () => {
+      vi.mocked(mockBudgetService.getDailyUsageRatio!).mockResolvedValue(0.85);
+      const sentMessages: string[] = [];
+      mockSendMessage(sentMessages);
+
+      await service.checkBudgetAlerts();
+      await service.checkBudgetAlerts();
+
+      expect(sentMessages.filter((msg) => msg.includes('80%'))).toHaveLength(1);
+    });
   });
 });

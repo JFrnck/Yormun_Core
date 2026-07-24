@@ -1,8 +1,13 @@
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { Bot, InlineKeyboard, type Context } from 'grammy';
 import type { Update } from 'grammy/types';
 import { AuditService } from '../audit/audit.service';
+import { BudgetGuardedModelRouter } from '../budget/budget-guarded-router.service';
+import { BudgetService } from '../budget/budget.service';
+import { KillSwitchService } from '../budget/kill-switch.service';
 import type { Env } from '../config/env.schema';
 import { DB_CONNECTION, type Db } from '../db/db.module';
 import { pendingApprovals } from '../db/schema';
@@ -11,7 +16,10 @@ import {
   PendingApprovalNotFoundError,
   SecondApprovalTooEarlyError,
 } from '../hitl/dual-confirm.service';
-import { ModelRouterService } from '../model-provider/router.service';
+
+// Umbrales de alerta diaria (BLUEPRINT 9.6/10.4): 80% y 100%. Se
+// notifica una vez por cruce, no en cada barrido del cron.
+const DAILY_ALERT_THRESHOLDS = [0.8, 1] as const;
 
 @Injectable()
 export class TelegramBotService implements OnModuleInit {
@@ -20,10 +28,24 @@ export class TelegramBotService implements OnModuleInit {
   private readonly ownerChatId: number;
   private readonly webhookUrl?: string;
   private readonly webhookSecret: string;
+  // Sesión estable para el chat conversacional (BLUEPRINT 9.6 "per
+  // sesión") — un solo owner, un solo chat, así que toda la
+  // conversación libre comparte presupuesto de sesión en vez de que
+  // cada mensaje sea su propia sesión aislada.
+  private readonly chatSessionId = 'telegram-chat';
+  // Estado en memoria para no repetir alertas — a diferencia del estado
+  // del kill switch (persistido en budget_kill_switch), perder este
+  // flag tras un restart solo produce como mucho una alerta duplicada,
+  // no una omitida silenciosamente.
+  private lastNotifiedKillSwitchActive = false;
+  private readonly notifiedDailyThresholdsToday = new Set<number>();
+  private lastDailyThresholdResetDate = '';
 
   constructor(
     private readonly configService: ConfigService<Env, true>,
-    private readonly modelRouterService: ModelRouterService,
+    private readonly budgetGuardedRouter: BudgetGuardedModelRouter,
+    private readonly budgetService: BudgetService,
+    private readonly killSwitchService: KillSwitchService,
     private readonly dualConfirmService: DualConfirmService,
     private readonly auditService: AuditService,
     @Inject(DB_CONNECTION) private readonly db: Db,
@@ -141,10 +163,43 @@ export class TelegramBotService implements OnModuleInit {
       await this.processRejection(ctx, requestId);
     });
 
-    // Comando /budget (stub honesto para Fase 4.1)
+    // Comando /budget (Fase 4.1)
     this.bot.command('budget', async (ctx) => {
+      const ratio = await this.budgetService.getDailyUsageRatio();
+      const killSwitchActive = await this.killSwitchService.isActive();
+      const percent = Math.min(999, Math.round(ratio * 100));
+
       await ctx.reply(
-        'ℹ️ El sistema de control de presupuesto (Budget Guard) está pendiente de implementación (Fase 4.1).',
+        `💰 *Presupuesto diario*: ${percent}% consumido.\n` +
+          `🔌 *Kill switch*: ${killSwitchActive ? '🔴 ACTIVO — usa /unpause' : '🟢 inactivo'}`,
+        { parse_mode: 'Markdown' },
+      );
+    });
+
+    // Comando /unpause (BLUEPRINT 9.6: "requiere unpause manual con
+    // comando /unpause que a su vez es confirm"). El "confirm" HITL acá
+    // lo satisface el propio middleware de auth: solo el owner
+    // autenticado por chat_id llega a este handler — no hay un LLM
+    // proponiendo el unpause que necesite una aprobación separada.
+    this.bot.command('unpause', async (ctx) => {
+      if (!(await this.killSwitchService.isActive())) {
+        await ctx.reply(
+          'ℹ️ El kill switch no está activo — nada que reanudar.',
+        );
+        return;
+      }
+
+      await this.killSwitchService.unpause();
+      await this.auditService.recordApproval({
+        requestId: randomUUID(),
+        approver: 'owner',
+        toolName: 'unpause',
+        inputsHash: 'n/a',
+      });
+      this.lastNotifiedKillSwitchActive = false;
+
+      await ctx.reply(
+        '✅ Kill switch desactivado. El sistema puede operar normalmente.',
       );
     });
 
@@ -170,7 +225,9 @@ export class TelegramBotService implements OnModuleInit {
       }
     });
 
-    // Handler de mensajes de texto libre (conversacional vía ModelRouterService)
+    // Handler de mensajes de texto libre (conversacional vía
+    // BudgetGuardedModelRouter — nunca ModelRouterService directo, así
+    // pasa por el chequeo de presupuesto/kill switch, BLUEPRINT 9.6).
     this.bot.on('message:text', async (ctx) => {
       const text = ctx.message.text;
       if (text.startsWith('/')) {
@@ -178,7 +235,7 @@ export class TelegramBotService implements OnModuleInit {
       }
 
       try {
-        const response = await this.modelRouterService.complete(
+        const response = await this.budgetGuardedRouter.complete(
           'chat_conversational',
           {
             systemPrompt:
@@ -187,15 +244,15 @@ export class TelegramBotService implements OnModuleInit {
             maxOutputTokens: 2000,
             temperature: 0.7,
           },
+          undefined,
+          this.chatSessionId,
         );
 
         await ctx.reply(response.content);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         this.logger.error(`Error en respuesta conversacional: ${msg}`);
-        await ctx.reply(
-          '⚠️ Ocurrió un error al procesar el mensaje con el LLM.',
-        );
+        await ctx.reply(`⚠️ ${msg}`);
       }
     });
   }
@@ -353,5 +410,67 @@ export class TelegramBotService implements OnModuleInit {
         : '');
 
     await ctx.reply(details, { parse_mode: 'Markdown' });
+  }
+
+  /**
+   * Alertas de kill switch y presupuesto diario (BLUEPRINT 9.6/10.4).
+   * Vive acá (no en src/budget/) para evitar un import circular entre
+   * BudgetModule y TelegramModule — Telegram ya importa Budget (para
+   * `BudgetGuardedModelRouter` y este mismo comando `/unpause`), así que
+   * hacer el polling de este lado es la única dirección sin ciclos. Ver
+   * STATUS.md Fase 4.1 para la decisión completa.
+   */
+  @Cron('*/5 * * * *')
+  async checkBudgetAlerts(): Promise<void> {
+    try {
+      await this.checkKillSwitchAlert();
+      await this.checkDailyBudgetAlert();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Error chequeando alertas de budget: ${msg}`);
+    }
+  }
+
+  private async checkKillSwitchAlert(): Promise<void> {
+    const isActive = await this.killSwitchService.isActive();
+
+    if (isActive && !this.lastNotifiedKillSwitchActive) {
+      await this.bot.api.sendMessage(
+        this.ownerChatId,
+        '🔴 *Kill switch activado* — consumo runaway detectado. Todos los agentes están pausados. Usa /unpause para reanudar.',
+        { parse_mode: 'Markdown' },
+      );
+    }
+    // Se actualiza siempre (no solo al notificar) para poder notificar
+    // de nuevo si se reactiva tras un /unpause.
+    this.lastNotifiedKillSwitchActive = isActive;
+  }
+
+  private async checkDailyBudgetAlert(): Promise<void> {
+    const today = new Date().toISOString().slice(0, 10);
+    if (today !== this.lastDailyThresholdResetDate) {
+      this.notifiedDailyThresholdsToday.clear();
+      this.lastDailyThresholdResetDate = today;
+    }
+
+    const ratio = await this.budgetService.getDailyUsageRatio();
+
+    for (const threshold of DAILY_ALERT_THRESHOLDS) {
+      if (
+        ratio >= threshold &&
+        !this.notifiedDailyThresholdsToday.has(threshold)
+      ) {
+        this.notifiedDailyThresholdsToday.add(threshold);
+        const percent = Math.round(threshold * 100);
+        await this.bot.api.sendMessage(
+          this.ownerChatId,
+          `⚠️ *Presupuesto diario al ${percent}%*` +
+            (threshold >= 1
+              ? ' — solo tools auto con modelos baratos hasta el reset de las 00:00.'
+              : ' — degradando a modelos más baratos automáticamente.'),
+          { parse_mode: 'Markdown' },
+        );
+      }
+    }
   }
 }

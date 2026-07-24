@@ -1,6 +1,11 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { loadModelsConfig, parseModelsConfig } from './models-config.schema';
+import {
+  loadModelPrices,
+  loadModelsConfig,
+  parseModelPrices,
+  parseModelsConfig,
+} from './models-config.schema';
 
 function validRawProfile(overrides: Record<string, unknown> = {}) {
   return {
@@ -83,5 +88,67 @@ describe('loadModelsConfig', () => {
     // confirma que el archivo real en disco matchea el schema y trae al
     // menos el profile que usa Fase 3.1 (Canvas/shadowing).
     expect(config.long_context.primary).toBe('gemini-3.1-pro');
+  });
+});
+
+describe('parseModelPrices', () => {
+  it('traduce snake_case a camelCase de ModelPrice', () => {
+    const prices = parseModelPrices({
+      model_prices: {
+        'claude-sonnet-5': { input_per_million: 3, output_per_million: 15 },
+      },
+    });
+    expect(prices['claude-sonnet-5']).toEqual({
+      inputPerMillion: 3,
+      outputPerMillion: 15,
+    });
+  });
+
+  it('acepta un mapa abierto de modelIds sin restringir a un set fijo', () => {
+    const prices = parseModelPrices({
+      model_prices: {
+        'un-modelo-nuevo-cualquiera': {
+          input_per_million: 1,
+          output_per_million: 2,
+        },
+      },
+    });
+    expect(prices['un-modelo-nuevo-cualquiera']).toBeDefined();
+  });
+
+  it('lanza si un precio es negativo o de tipo incorrecto', () => {
+    expect(() =>
+      parseModelPrices({
+        model_prices: {
+          x: { input_per_million: -1, output_per_million: 2 },
+        },
+      }),
+    ).toThrow(/config\/models\.yaml \(model_prices\) inválido/);
+    expect(() =>
+      parseModelPrices({
+        model_prices: { x: { input_per_million: 'gratis' } },
+      }),
+    ).toThrow();
+  });
+
+  it('lanza si falta la clave model_prices por completo', () => {
+    expect(() => parseModelPrices({})).toThrow();
+  });
+});
+
+describe('loadModelPrices', () => {
+  it('carga y valida el config/models.yaml real, incluyendo los 9 modelos documentados', () => {
+    const realPath = join(process.cwd(), 'config', 'models.yaml');
+    const prices = loadModelPrices(realPath);
+
+    expect(prices['claude-opus-4-8']).toEqual({
+      inputPerMillion: 15,
+      outputPerMillion: 75,
+    });
+    expect(prices['gemini-3.1-pro']).toEqual({
+      inputPerMillion: 1.25,
+      outputPerMillion: 10,
+    });
+    expect(Object.keys(prices)).toHaveLength(9);
   });
 });
