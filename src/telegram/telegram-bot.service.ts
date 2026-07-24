@@ -19,7 +19,7 @@ export class TelegramBotService implements OnModuleInit {
   private readonly bot: Bot;
   private readonly ownerChatId: number;
   private readonly webhookUrl?: string;
-  private readonly webhookSecret?: string;
+  private readonly webhookSecret: string;
 
   constructor(
     private readonly configService: ConfigService<Env, true>,
@@ -35,7 +35,6 @@ export class TelegramBotService implements OnModuleInit {
     });
     this.webhookSecret = this.configService.get<string>(
       'TELEGRAM_WEBHOOK_SECRET',
-      { infer: true },
     );
 
     this.bot = new Bot(token);
@@ -53,14 +52,11 @@ export class TelegramBotService implements OnModuleInit {
       }
 
       if (this.webhookUrl) {
-        const options = this.webhookSecret
-          ? { secret_token: this.webhookSecret }
-          : undefined;
-        await this.bot.api.setWebhook(this.webhookUrl, options);
+        await this.bot.api.setWebhook(this.webhookUrl, {
+          secret_token: this.webhookSecret,
+        });
         this.logger.log(
-          `Webhook de Telegram configurado en: ${this.webhookUrl} ${
-            this.webhookSecret ? '(con secret_token)' : ''
-          }`,
+          `Webhook de Telegram configurado en: ${this.webhookUrl} (con secret_token)`,
         );
       }
     } catch (err: unknown) {
@@ -77,12 +73,9 @@ export class TelegramBotService implements OnModuleInit {
 
   /**
    * Valida si el secret token recibido en los headers del webhook coincide
-   * con el secret configurado en las variables de entorno.
+   * estrictamente con TELEGRAM_WEBHOOK_SECRET.
    */
   public validateWebhookSecret(secretTokenHeader?: string): boolean {
-    if (!this.webhookSecret) {
-      return true; // En entornos donde no se define secret, se permite
-    }
     return secretTokenHeader === this.webhookSecret;
   }
 
